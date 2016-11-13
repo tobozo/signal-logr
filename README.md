@@ -66,7 +66,7 @@ Test the app
 
 You can add to `/etc/rc.local` and reboot
 
-    cd /home/pi/rpi-gps-wifi/ && /opt/nodejs/bin/forever start index.js
+    cd /home/pi/signal-logr/ && /opt/nodejs/bin/forever start index.js
 
 
 ****
