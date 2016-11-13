@@ -1,0 +1,21 @@
+{
+  "name": "rpi-gps-wifi",
+  "version": "1.0.0",
+  "description": "GPS & Wifi Signal Logger + GUI for Raspberry Pi",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "tobozo",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^2.0.0",
+    "ejs": "^2.5.2",
+    "express": "^4.14.0",
+    "gps": "^0.2.0",
+    "jsonfile": "^2.4.0",
+    "node-gpsd": "^0.2.6",
+    "socket.io": "^1.5.1",
+    "wireless": "^0.3.2"
+  }
+}
