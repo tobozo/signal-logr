@@ -29,6 +29,7 @@ var mapElement,
     wifiCache = {},
     wifiTimeline = [],
     wifiSort = 'quality',
+    wifiName = 'ssid',
     $wifilist = $('.wifi-list')
 ;
 
@@ -73,7 +74,7 @@ google.maps.event.addDomListener(window, 'load', initializeMap);
 
 var renderIface = function(iface) {
     var wifibar = '<div class="wifi-bar"></div>';
-    var $ifacename = $('<div class="iface-name">'+iface.ssid+'</div>');
+    var $ifacename = $('<div class="iface-name">'+iface[wifiName]+'</div>');
     var $ifacebox = $('<div class="iface-box"></div>')
     var $signalbox = $('<div class="signal-box"></div>');
     var clearfix = '<div style="clear:both"></div>';
@@ -550,6 +551,10 @@ function setWifiSort() {
     socket.emit('wifi-cache', "blah");
 }
 
+function setWifiName() {
+    wifiName = $('#wifi-named-by').val();
+    socket.emit('wifi-cache', 'blah');
+}
 
 function initHeatmap() {
     heatmap = new google.maps.visualization.HeatmapLayer({

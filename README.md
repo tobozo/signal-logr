@@ -5,6 +5,10 @@ This is an attempt to build a minimalistic GPS + Wifi logger for war walking.
 Minimal-sized setup for this build is a Pi Zero + Serial GPS + Wifi USB Dongle, it fits in the pocket!
 The collected data can be rendered later or observed in realtime through the HTML5 GUI.
 
+<p align="center">
+<img src="https://raw.githubusercontent.com/tobozo/signal-logr/master/signal-logr.png" />
+</p> 
+
 
 **OS/System Requirements:**
 ----

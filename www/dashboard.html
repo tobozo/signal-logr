@@ -73,6 +73,11 @@ header {
   padding-bottom:0;
 }
 
+.title select {
+  font-size:75%;
+  border:0;
+}
+
 .wifi-list {
     height: 100%;
     overflow-x: hidden;
@@ -235,8 +240,13 @@ header {
 
   <div class="wifi-wrapper">
     <div class="title">
-      Wifi Devices sorted by
-      <select id="wifi-sort-by" onchange="setWifiSort(this)">
+      Wifi 
+      <select id="wifi-named-by" onchange="setWifiName()">
+        <option selected value="ssid">ssid</option>
+        <option value="address">address</option>
+      </select>
+      sorted by
+      <select id="wifi-sort-by" onchange="setWifiSort()">
         <option selected value="quality">quality</option>
         <option value="strength">strength</option>
       </select>
