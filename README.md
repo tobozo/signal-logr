@@ -22,11 +22,26 @@ The collected data can be rendered later or observed in realtime through the HTM
 **Installation:**
 ----
 
-Assuming all devices are plugged and properly detected, install gpsd
+**Prerequisites** NodeJS is installed and GPS + Wifi devices are plugged and properly detected.
+
+Install gpsd
 
     sudo apt-get install gpsd
 
-Edit your `/etc/defaults/gpsd` to setup your own GPS tty and restart
+Edit your `/etc/defaults/gpsd`
+
+    sudo nano /etc/defaults/gpsd
+
+Verify the tty of your GPS device, change if necessary
+
+    DEVICES="/dev/ttyUSB0"
+
+Other values to check
+
+    START_DAEMON="true"
+    USBAUTO="false"
+
+Then restart gpsd
 
     sudo service gpsd restart
 
@@ -36,6 +51,8 @@ You need *forever.js* installed globally to run this project headless
 
 Clone the repository and install
 
+    git clone https://github.com/tobozo/signal-logr.git
+    cd signal-logr
     npm install
 
 Put your Google Maps Api key in the `.env` file
@@ -47,7 +64,7 @@ Test the app
 
     node index.js
 
-You can add to `/etc/rc.local` and reboot:
+You can add to `/etc/rc.local` and reboot
 
     cd /home/pi/rpi-gps-wifi/ && /opt/nodejs/bin/forever start index.js
 

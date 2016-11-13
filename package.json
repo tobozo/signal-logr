@@ -1,5 +1,5 @@
 {
-  "name": "rpi-gps-wifi",
+  "name": "signal-logr",
   "version": "1.0.0",
   "description": "GPS & Wifi Signal Logger + GUI for Raspberry Pi",
   "main": "index.js",
