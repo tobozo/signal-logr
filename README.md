@@ -22,11 +22,19 @@ The collected data can be rendered later or observed in realtime through the HTM
 - A valid Google Maps Api key (https://developers.google.com/maps/documentation/javascript/get-api-key)
 - [optional] gammu-smsd (https://wammu.eu/gammu/)
 - [optional] A GSM/GPRS device
+- [optional] A RTL-SDR dongle
 
 **Installation:**
 ----
 
 **Prerequisites** NodeJS is installed and GPS + Wifi devices are plugged and properly detected.
+
+[optional]
+Install RTL-SDR software from https://github.com/MalcolmRobb/dump1090
+
+[optional] (if using GSM/GPRS/GNSS hat instead of external GPS module)
+Install GSM/GPRS/GNSS software from WaveShare https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT
+
 
 Install gpsd
 

@@ -30,7 +30,13 @@ var mapElement,
     wifiTimeline = [],
     wifiSort = 'quality',
     wifiName = 'ssid',
-    $wifilist = $('.wifi-list')
+    $wifilist = $('.wifi-list'),
+    deviceStatus = {
+      wifi:null,
+      rtlsdr:null,
+      gpshat:null,
+      gpsdaemon:null
+    }
 ;
 
 var socket = io();
@@ -126,6 +132,46 @@ var renderWifiCache = function(data) {
     updateWifi(wifiCache);
 }
 
+
+socket.on('reload', function() { location.reload(); });
+socket.on('device-status', function(data) {
+  
+  if(data.wirelessisrunning != deviceStatus.wifi) {
+    deviceStatus.wifi = data.wirelessisrunning;
+    if(deviceStatus.wifi) {
+      $('.device-wifi').removeClass('disabled')
+      $('.wifi-item').show();
+    } else {
+      $('.device-wifi').addClass('disabled');
+      $('.wifi-item').hide();
+    }
+  }
+  if(data.gpsdaemonisrunning != deviceStatus.gpsdaemon) {
+    deviceStatus.gpsdaemon = data.gpsdaemonisrunning;
+    if(deviceStatus.gpsdaemon)
+      $('.device-gpsdaemon').removeClass('disabled') 
+    else
+      $('.device-gpsdaemon').addClass('disabled');
+  }
+  if(data.rtlsdrisrunning != deviceStatus.rtlsdr) {
+    deviceStatus.rtlsdr = data.rtlsdrisrunning;
+    if(deviceStatus.rtlsdr) {
+      $('.device-rtlsdr').removeClass('disabled')
+      $('.wifi-item').hide();
+    } else {
+      $('.device-rtlsdr').addClass('disabled');
+      $('.wifi-item').show();
+    }
+  }
+  if(data.gpshatisrunning != deviceStatus.gpshat) {
+    deviceStatus.gpshat = data.gpshatisrunning;
+    if(deviceStatus.gpshat)
+      $('.device-gpshat').removeClass('disabled')
+    else
+      $('.device-gpshat').addClass('disabled');
+  }
+
+});
 
 socket.on('wificache', renderWifiCache);
 
@@ -239,6 +285,7 @@ socket.on('pollfile', function(data) {
 var width = 500;
 var barHeight = 100;
 var padding = 1;
+var paddingGPS = 4;
 
 var dataset = [];
 
@@ -270,10 +317,10 @@ function updateWifi(obj) {
     rect.attr("x", function(d, i) {
       return i * (width / data.length);
     }).attr("y", function(d) {
-      var v = d.quality || 0;
+      var v = d.quality || 10;
       return barHeight - (v * 1);
     }).attr("width", width / data.length - padding).attr("height", function(d) {
-      var v = d.quality || 0;
+      var v = d.quality || 10;
       return v * 4;
     }).attr("fill", function(d) {
       var v = 255 + d.strength*2 || 0;
@@ -294,13 +341,13 @@ function updateSatellite(data) {
     rect.attr("x", function(d, i) {
       return i * (width / data.satsVisible.length);
     }).attr("y", function(d) {
-      var v = d.snr || 0;
+      var v = d.snr || 10;
       return barHeight - (v * 2);
-    }).attr("width", width / data.satsVisible.length - padding).attr("height", function(d) {
-      var v = d.snr || 0;
+    }).attr("width", width / data.satsVisible.length - paddingGPS).attr("height", function(d) {
+      var v = d.snr || 10;
       return v * 2;
     }).attr("fill", function(d) {
-      var v = d.snr || 0;
+      var v = d.snr || 10;
       if (-1 !== data.satsActive.indexOf(d.prn)) {
         return "rgb(0, 0, " + (v * 10 | 0) + ")";
       }
@@ -419,6 +466,36 @@ function initializeMap() {
             top.location = top.location
         }, 10000);
     });
+    
+    
+    $('.device-gpsdaemon').on('click', function() {
+      if(deviceStatus.gpsdaemon===true) {
+        socket.emit('gpsdaemonstop');
+      } else {
+        socket.emit('gpsdaemonstart');
+      }
+    });
+    $('.device-gpshat').on('click', function() {
+      if(deviceStatus.gpshat===true) {
+        socket.emit('gpsdisable');
+      } else {
+        socket.emit('gpsenable');
+      }
+    });
+    $('.device-rtlsdr').on('click', function() {
+      if(deviceStatus.rtlsdr===true) {
+        socket.emit('rtlsdrdisable');
+      } else {
+        socket.emit('rtlsdrenable');
+      }
+    });
+    $('.device-wifi').on('click', function() {
+      if(deviceStatus.wifi===true) {
+        socket.emit('wifidisable');
+      } else {
+        socket.emit('wifienable');
+      }
+    });    
 
     $fixProgress.on('reset', function() {
         $fixProgress.val(60);

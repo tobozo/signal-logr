@@ -39,5 +39,8 @@ jspm_packages
 #Project data files
 data/wifi/*.json
 data/gps/*.json
+www/dump1090/*.json
 .env
+# fuck you npm
+package-lock.json
 

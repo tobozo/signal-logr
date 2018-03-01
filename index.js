@@ -8,21 +8,26 @@
 require('dotenv').config();
 
 // load app stack
-var app = require('express')()
+
+const express = require('express')
+  , app = express()
   , http = require('http').Server(app)
+  , request = require('request')
   , io = require('socket.io')(http)
   , gpsd = require("node-gpsd")
   , GPS = require('gps')
   , exec = require('child_process').exec
+  , spawn = require('child_process').spawn
   , execSync = require("child_process").execSync
   , jsonfile = require('jsonfile')
   , fs = require('fs')
   , Wireless = require('wireless')
   , os = require('os')
+  , path = require('path')
 ;
 
 // throw some vars
-var connected = false
+let connected = false
   , killing_app = false
   , oldalias = 0
   , secondsSinceLastPoll = 0
@@ -34,44 +39,61 @@ var connected = false
   , geoDataDir = dataDir + '/gps/'
   , wifiDataDir = dataDir + '/wifi/'
   , htmlDir =  __dirname + '/www'
+  , rtlsdrDataDir = htmlDir + '/dump1090'
+  , dump1090Dir = '/home/pi/dump1090/'
+  , dump1090HTMLDir = dump1090Dir + 'public_html/'
+  , dump1090ConfigFile = dump1090HTMLDir + 'config.js'
+  , dump1090timer
   , pollFiles = []
   , wifiFiles = []
   , wifiMaxHistoryItems = 100
   , googleMapsApiKey = process.env.apiKey
   , wifiCache = { }
   , gpstime = new Date()
+  , gpsdaemonisrunning = true
+  , gpshatisrunning = false
+  , wirelessisrunning = false
+  , rtlsdrisrunning = false
 ;
 
 
 if(googleMapsApiKey===undefined) console.log("[WARN] Missing apiKey in .env file, GUI may suffer");
 
-
-var wireless = new Wireless({
+const wireless = new Wireless({
     iface: 'wlan0',
-    updateFrequency: 10, // Optional, seconds to scan for networks
+    updateFrequency: 30, // Optional, seconds to scan for networks
     connectionSpyFrequency: 2, // Optional, seconds to scan if connected
     vanishThreshold: 5 // Optional, how many scans before network considered gone
 });
 
 
-var gps = new GPS;
+const gpsWarn = function(msg) {
+  console.log('[WARN] GPSD - ', msg);
+}
+const gpsErr = function(msg) {
+  console.log('[ERROR] GPSD - ', msg);
+  gpsdaemonisrunning = false;
+}
 
 
-var listener = new gpsd.Listener({
+const gps = new GPS;
+
+
+const listener = new gpsd.Listener({
     port: 2947,
     hostname: 'localhost',
     emitraw: true,
     parsejson: false,
     logger:  {
-        info: function() {},
-        warn: console.warn,
-        error: console.error
+        info:  function() {},
+        warn:  gpsWarn,
+        error: gpsErr
     },
     parse: false
 });
 
 
-var mkdirSync = function (path) {
+const mkdirSync = function (path) {
   try {
     fs.mkdirSync(path);
   } catch(e) {
@@ -80,9 +102,10 @@ var mkdirSync = function (path) {
 }
 
 
-var checkInterfaces = function() {
-  var ifaces = os.networkInterfaces();
-  var alias = 0;
+const checkInterfaces = function() {
+  if(wirelessisrunning===false) return;
+  const ifaces = os.networkInterfaces();
+  let alias = 0;
   Object.keys(ifaces).forEach(function (ifname) {
     alias = 0;
 
@@ -116,7 +139,7 @@ var checkInterfaces = function() {
 };
 
 
-var setPoll = function() {
+const setPoll = function() {
   secondsSinceLastFix++;
   secondsSinceLastPoll++;
   if(fixPoll.length === 0) {
@@ -129,7 +152,8 @@ var setPoll = function() {
 };
 
 
-var setFix = function() {
+const setFix = function() {
+  if(gpsdaemonisrunning===false) return;
   if(lastFix===undefined) {
     // not started yet
     return;
@@ -146,14 +170,14 @@ var setFix = function() {
 }
 
 
-var savePoll = function() {
+const savePoll = function() {
   if(fixPoll.length===0) {
     // can't save empty poll!
     return;
   }
 
-  var fileName = geoDataDir + fixPoll[0].time.replace(/[^a-z0-9-]+/gi, '_') + '.json';
-  var wifilist = {};
+  const fileName = geoDataDir + fixPoll[0].time.replace(/[^a-z0-9-]+/gi, '_') + '.json';
+  let wifilist = {};
   try {
     wifilist = wireless.list();
   } catch(e) {
@@ -169,12 +193,12 @@ var savePoll = function() {
 }
 
 
-var resetPoll = function() {
+const resetPoll = function() {
   fixPoll = [];
 }
 
 
-var refreshPollInventory = function() {
+const refreshPollInventory = function() {
   fs.readdir(geoDataDir, function(err, files) {
     if(err) {
       console.log('failed to get dir', geoDataDir, err);
@@ -190,7 +214,7 @@ var refreshPollInventory = function() {
 }
 
 
-var sendPollInventory = function() {
+const sendPollInventory = function() {
   fs.readdir(geoDataDir, function(err, files) {
     if(err) {
       console.log('failed to get dir', geoDataDir, err);
@@ -205,8 +229,8 @@ var sendPollInventory = function() {
   });
 }
 
-var sendPollContent = function(fileName) {
-  var pollName = false;
+const sendPollContent = function(fileName) {
+  let pollName = false;
   // console.log('got poll content request', fileName);
   pollFiles.forEach(function(tmpFileName) {
     if(fileName === tmpFileName) {
@@ -225,18 +249,19 @@ var sendPollContent = function(fileName) {
 }
 
 
-var sendWifiCache = function() {
+const sendWifiCache = function() {
   io.emit('wificache', wifiCache);
 }
 
-var setWifiCache = function() {
+const setWifiCache = function() {
+  if(wirelessisrunning===false) return;
   if(Object.keys(wifiCache).length ===0) return;
   sendWifiCache();
 }
 
 
-var saveWifi = function(wifi, event) {
-  var fileName = wifiDataDir + wifi.address.replace(/[^a-z0-9-]+/gi, '_') + '.json';
+const saveWifi = function(wifi, event) {
+  const fileName = wifiDataDir + wifi.address.replace(/[^a-z0-9-]+/gi, '_') + '.json';
 
   jsonfile.readFile(fileName, function(err, obj) {
 
@@ -265,7 +290,7 @@ var saveWifi = function(wifi, event) {
 
 
 
-var sendWifiInventory = function() {
+const sendWifiInventory = function() {
   fs.readdir(wifiDataDir, function(err, files) {
     if(err) {
       console.log('failed to get dir', geoDataDir, err);
@@ -281,8 +306,8 @@ var sendWifiInventory = function() {
 }
 
 
-var sendWifiContent = function(fileName) {
-  var wifiName = false;
+const sendWifiContent = function(fileName) {
+  let wifiName = false;
   // console.log('got wifi content request', fileName);
   wifiFiles.forEach(function(tmpFileName) {
     if(fileName === tmpFileName) {
@@ -301,18 +326,135 @@ var sendWifiContent = function(fileName) {
 }
 
 
+const wirelessStart = function() {
+  if(wirelessisrunning===true) {
+    console.log("[INFO] Wireless already started");
+    return;
+  }
+  wireless.enable(function(err) {
+    if (err) {
+        console.log("[FAILURE] Unable to enable wireless card. Quitting...");
+        return;
+    }
+    console.log("[INFO] Wireless card enabled.");
+    console.log("[INFO] Starting wireless scan...");
+    wireless.start();
+    wirelessisrunning = true;
+  });
+}
+
+
+const wirelessStop = function() {
+  if(wirelessisrunning===false) {
+    console.log("[INFO] Wireless already stopped");
+    return;
+  }
+  wireless.disable(function() {
+      console.log("[INFO] Stopping Wifi");
+      wireless.stop();
+      wirelessisrunning = false;
+  });
+}
+
+
+
+const onChildStdOut = function(data) {
+  console.log('[STDOUT]', data.toString());
+}
+const onChildStdErr = function(data) {
+  console.log('[STDOUT]', data.toString());
+}
+const onChildClose = function(code) {
+  console.log("[EOL] Finished with code " + code);
+}
+
+const spawnChild = function(cmd, args, opts, onstdout, onstderr, onclose) {
+  let child = spawn(cmd, args, opts);
+  child.stdout.on('data', onstdout);
+  child.stderr.on('data', onstderr);
+  child.on('close', onclose);
+}
+
+const dump1090JSON = function() {
+  // get http://localhost:8080/dump1090/data.json 
+  // write locally
+  request('http://localhost:8080/dump1090/data.json').pipe(fs.createWriteStream(htmlDir + '/dump1090/data.json'))
+}
+
+
+const startDump1090 = function() {
+  //execSync(dump1090Dir + 'dump1090 --net --net-http-port 8080 --quiet &');
+  
+  spawnChild(dump1090Dir + 'dump1090', ['--net', '--net-http-port', '8080', '--quiet'], {cwd:dump1090Dir}, onChildStdOut, onChildStdErr, function() {
+    console.log('[INFO] dump1090 exited Successfully!');
+    rtlsdrisrunning = false;
+  });
+  
+  rtlsdrisrunning = true;
+  clearInterval( dump1090timer );
+  dump1090timer = setInterval( dump1090JSON, 5000);
+  
+  console.log('[INFO] RTLSDR Device Started Successfully!');
+}
+const stopDump1090 = function() {
+  execSync('sudo killall dump1090'); // yuck
+  rtlsdrisrunning = false;
+  clearInterval( dump1090timer );
+  console.log('[INFO] RTLSDR Device Killed Successfully!');
+}
+
+
+const startGPSDaemon = function() {
+  execSync('sudo service gpsd restart');
+  console.log('[INFO] GPS Daemon Started Successfully, will restart server');
+  process.exit(0);
+}
+const stopGPSDaemon = function() {
+  execSync('sudo service gpsd stop');
+  console.log('[INFO] GPS Daemon Stopped Successfully');
+  //process.exit(0);
+}
+
+const startGPSDevice = function() {
+  spawnChild('python', ['scripts/startgps.py'], null, onChildStdOut, onChildStdErr, function() {
+    gpsdaemonisrunning = true;
+    console.log('[INFO] GPS Device Started Successfully!');
+    startGPSDaemon();
+  });
+}
+const stopGPSDevice = function() {
+  spawnChild('python', ['scripts/stopgps.py'], null, onChildStdOut, onChildStdErr, function() {
+    gpsdaemonisrunning = true;
+    console.log('[INFO] GPS Device Stopped Successfully!');
+    stopGPSDaemon();
+  });
+}
+
+const sendDeviceStatus = function() {
+  io.emit('device-status', {
+     wirelessisrunning:wirelessisrunning,
+    gpsdaemonisrunning:gpsdaemonisrunning,
+       gpshatisrunning:gpshatisrunning,
+       rtlsdrisrunning:rtlsdrisrunning
+  });
+}
+
+
 mkdirSync( dataDir );
 mkdirSync( geoDataDir );
 mkdirSync( wifiDataDir);
+mkdirSync( rtlsdrDataDir );
 
 setInterval(checkInterfaces, 20000); // check for network change every 20 sec
 setInterval(setPoll, 1000);
 setInterval(setFix, 1000);
 setInterval(setWifiCache, 61000); // force wifi cache reload every minute
+setInterval(sendDeviceStatus, 1000); // send device status every second
 
 
 listener.connect(function() {
-    console.log('[INFO] Connected and Listening to GPSD');
+  console.log('[INFO] Connected and Listening to GPSD');
+  gpsdaemonisrunning = true;
 });
 
 
@@ -320,6 +462,7 @@ listener.watch({class: 'WATCH', nmea: true});
 
 // tell express to use ejs for rendering HTML files:
 app.set('views', htmlDir);
+//app.set('views', htmlDir+'/dump1090');
 app.engine('html', require('ejs').renderFile);
 
 // feed the dashboard with the apiKey
@@ -332,17 +475,31 @@ app.get('/', function(req, res) {
 app.get('/jquery-ui-timepicker-addon.js', function(req, res) {
   res.sendFile(htmlDir + '/jquery-ui-timepicker-addon.js');
 });
+app.get('/gmap.html', function(req, res) {
+  res.render('gmap.html', {
+    host: req.headers.host.replace('3000', '8080'),
+    lat: lastFix.lat,
+    lon: lastFix.lon
+  });
+  //res.sendFile(htmlDir + '/gmap.html');
+});
+
+
+app.get('/dump1090/data.json', function(req, res) {
+  res.sendFile(htmlDir + '/dump1090/data.json');
+});
 
 app.get('/dashboard.js', function(req, res) {
   res.sendFile(htmlDir + '/dashboard.js');
 });
-
+app.use(express.static(path.join(__dirname, 'www/img')));
 
 http.listen(3000, function() {
   console.log('[INFO] Web Server GUI listening on *:3000');
 
   gps.on('data', function() {
     io.emit('state', gps.state);
+    //console.log('[state]', gps.state);
     if(gps.state.fix && gps.state.fix==='3D') {
       if(gps.state.lat===0 || gps.state.lat===null) return;
       if(gps.state.lon===0 || gps.state.lon===null) return;
@@ -356,8 +513,10 @@ http.listen(3000, function() {
 
 
   listener.on('raw', function(data) {
+    gpshatisrunning = true;
     try {
       gps.update(data);
+      //console.log('[RAW]', data);
     } catch(e) {
       console.log('invalid data');
       console.log(data)
@@ -368,6 +527,43 @@ http.listen(3000, function() {
 
   io.sockets.on('connection', function (socket) {
 
+    socket.on('gpsenable', function(data) {
+      console.log('[INFO] Will enable GPS');
+      startGPSDevice();
+    });
+    socket.on('gpsdisable', function(data) {
+      console.log('[INFO] Will disable GPS');
+      stopGPSDevice();
+    });
+    socket.on('gpsdaemonstart', function(data) {
+      startGPSDaemon();
+    });
+    socket.on('gpsdaemonstop', function(data) {
+      stopGPSDaemon();
+    });
+    socket.on('rtlsdrenable', function(data) {
+      //stop wifi
+      wirelessStop();
+      //start dump1090
+      startDump1090();
+      rtlsdrisrunning = true;
+    });
+    socket.on('rtlsdrdisable', function(data) {
+      //stop dump1090
+      stopDump1090();
+    });
+    socket.on('wifienable', function(data) {
+      //stop dump1090
+      stopDump1090();
+      //start wifi
+      wirelessStart();
+      rtlsdrisrunning = false;
+    });
+    socket.on('wifidisable', function(data) {
+      wirelessStop();
+    });
+    
+    
     //socket.on('sms', function(data) {
     //  console.log('received event sms', data);
     //  var gammu = "/usr/bin/sudo";
@@ -386,29 +582,24 @@ http.listen(3000, function() {
     socket.on('poll-files', sendPollInventory);
     socket.on('poll-content', sendPollContent);
     socket.on('wifi-cache', sendWifiCache);
+    socket.on('device-status', sendDeviceStatus);
 
   });
 
+  setTimeout(function() {
+    console.log('will reload web UI');
+    io.emit('reload', {go:true});
+  }, 2000);
 
-  wireless.enable(function(err) {
-    if (err) {
-        console.log("[FAILURE] Unable to enable wireless card. Quitting...");
-        return;
-    }
 
-    console.log("[INFO] Wireless card enabled.");
-    console.log("[INFO] Starting wireless scan...");
-
-    wireless.start();
-
-  });
+  wirelessStart();
 
 });
 
 
 // Found a new network
 wireless.on('appear', function(network) {
-    var quality = Math.floor(network.quality / 70 * 100);
+    const quality = Math.floor(network.quality / 70 * 100);
 
     network.ssid = network.ssid || '[HIDDEN]';
 
@@ -429,7 +620,7 @@ wireless.on('appear', function(network) {
 });
 
 wireless.on('change', function(network) {
-    var quality = Math.floor(network.quality / 70 * 100);
+    const quality = Math.floor(network.quality / 70 * 100);
 
     network.ssid = network.ssid || '[HIDDEN]';
 
@@ -463,6 +654,13 @@ wireless.on('vanish', function(network) {
 wireless.on('error', function(message) {
     // io.emit('wifi', {error:network});
     console.log("[ERROR] Wifi / " + message);
+    wirelessStop();
+    /*
+    wireless.disable(function() {
+        console.log("[INFO] Stopping Wifi");
+        wireless.stop();
+    });
+    */
 });
 
 
@@ -479,9 +677,12 @@ process.on('SIGINT', function() {
     console.log("[INFO] Gracefully shutting down from SIGINT (Ctrl+C)");
     console.log("[INFO] Disabling Wifi Adapter...");
 
+   wirelessStop();
+   /*
     wireless.disable(function() {
         console.log("[INFO] Stopping Wifi and Exiting...");
 
         wireless.stop();
     });
+   */
 });

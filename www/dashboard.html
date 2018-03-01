@@ -181,6 +181,32 @@ header {
 }
 
 
+.device-status {
+  position: absolute;
+  bottom: 1em;
+  right: 1em;
+}
+.device-status > div {
+  width:2em;
+  height:2em;
+  display: inline-block;
+  background-repeat:no-repeat;
+  background-position: center center;
+  background-size: cover;
+}
+
+.device-status > div.disabled {
+  /*opacity: 0.5;*/
+  filter:grayscale(100%) brightness(40%) sepia(100%) hue-rotate(-50deg) saturate(600%) contrast(0.8);
+}
+
+.device-wifi { background-image:url('/wifi.png'); }
+.device-gpsdaemon { background-image:url('/gps.png'); }
+.device-gpshat { background-image:url('/gpio.png'); }
+.device-rtlsdr { background-imagE:url('/rtlsdr.jpeg'); }
+
+
+
 </style>
 <link rel="stylesheet" href="http://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
 </head>
@@ -195,9 +221,10 @@ header {
   <div class="dataviz" style="float:left">
     <div class="title">GPS Satellites</div>
     <div class="satellites"></div>
-    <div class="title">Wifi Devices</div>
-    <div class="wifi"></div>
+    <div class="title wifi-item">Wifi Devices</div>
+    <div class="wifi  wifi-item"></div>
   </div>
+
   <div class="gps-info">
     <div class="title">GPS Info</div>
     <table style="font-size:70%">
@@ -238,7 +265,16 @@ header {
     </table>
   </div>
 
-  <div class="wifi-wrapper">
+  <div class="device-status">
+    <div class="device-wifi" title="WiFi"></div>
+    <div class="device-gpsdaemon" title="GPS Daemon"></div>
+    <div class="device-gpshat" title="GPIO Hat"></div>
+    <div class="device-rtlsdr" title="RTL-SRD Dongle"></div>
+  </div>
+
+
+
+  <div class="wifi-wrapper wifi-item">
     <div class="title">
       Wifi 
       <select id="wifi-named-by" onchange="setWifiName()">
