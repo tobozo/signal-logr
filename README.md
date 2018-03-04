@@ -1,32 +1,36 @@
-**GPS / Wifi logger for Raspberry Pi**
+**Air logger for Raspberry Pi**
 ===========
 
-This is an attempt to build a minimalistic GPS + Wifi logger for war walking.
-Minimal-sized setup for this build is a Pi Zero + Serial GPS + Wifi USB Dongle, it fits in the pocket!
+This is an attempt to build a GPS + Wifi logger for war walking, with the addition of ADSB tracking.
+This build requires at least a Pi2 + Serial GPS + Wifi USB Dongle + RTL-SDR Dongle.
 The collected data can be rendered later or observed in realtime through the HTML5 GUI.
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/tobozo/signal-logr/master/signal-logr.png" />
-</p> 
-
+</p>
+<p align="center">
+<img src="https://raw.githubusercontent.com/tobozo/signal-logr/master/signal-logr-rtl-sdr.png" />
+</p>
 
 **OS/System Requirements:**
 ----
 
-- Raspbian Jessie
+- Raspbian Stretch (works with Jessie too)
 - NodeJS
 - ForeverJS (https://github.com/foreverjs/forever)
 - gpsd (http://catb.org/gpsd/)
-- GPS device connected to the Pi
-- Wifi device connected to the Pi
+- A GPS device connected to the Pi
+- A Wifi device connected to the Pi
 - A valid Google Maps Api key (https://developers.google.com/maps/documentation/javascript/get-api-key)
-- A GSM/GPRS device (such as [this one](https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT)
-- A RTL-SDR dongle (see [this page](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/)
+- A GSM/GPRS device (such as [this one](https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT))
+- A RTL-SDR dongle (see [this page](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/))
 
 **Installation:**
 ----
 
-**Prerequisites** NodeJS is installed and GPS + Wifi devices are plugged and properly detected.
+**Prerequisites** GPS / Wifi / RTL-SDR devices are plugged in
+
+Choose your veersion and [install NodeJS](https://github.com/nodesource/distributions#debinstall)
 
 Install RTL-SDR software 
 
