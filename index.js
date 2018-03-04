@@ -378,13 +378,18 @@ const spawnChild = function(cmd, args, opts, onstdout, onstderr, onclose) {
 const dump1090JSON = function() {
   // get http://localhost:8080/dump1090/data.json 
   // write locally
-  request('http://localhost:8080/dump1090/data.json').pipe(fs.createWriteStream(htmlDir + '/dump1090/data.json'))
+  //request('http://localhost:8080/dump1090/data.json').pipe(fs.createWriteStream(htmlDir + '/dump1090/data.json'))
+  request('http://localhost:8080/dump1090/data.json', function (error, response, body) {
+    if(response && response.statusCode && response.statusCode==200) {
+      io.emit('rtlsdr', body);
+    }
+  });//.pipe(io.emit('rtlsdr'))
 }
 
 
 const startDump1090 = function() {
   //execSync(dump1090Dir + 'dump1090 --net --net-http-port 8080 --quiet &');
-  
+  stopDump1090();
   spawnChild(dump1090Dir + 'dump1090', ['--net', '--net-http-port', '8080', '--quiet'], {cwd:dump1090Dir}, onChildStdOut, onChildStdErr, function() {
     console.log('[INFO] dump1090 exited Successfully!');
     rtlsdrisrunning = false;
@@ -397,7 +402,9 @@ const startDump1090 = function() {
   console.log('[INFO] RTLSDR Device Started Successfully!');
 }
 const stopDump1090 = function() {
-  execSync('sudo killall dump1090'); // yuck
+  try {
+    execSync('sudo killall dump1090');
+  } catch(e) { ; }
   rtlsdrisrunning = false;
   clearInterval( dump1090timer );
   console.log('[INFO] RTLSDR Device Killed Successfully!');
@@ -407,23 +414,25 @@ const stopDump1090 = function() {
 const startGPSDaemon = function() {
   execSync('sudo service gpsd restart');
   console.log('[INFO] GPS Daemon Started Successfully, will restart server');
+  gpsdaemonisrunning = true;
   process.exit(0);
 }
 const stopGPSDaemon = function() {
   execSync('sudo service gpsd stop');
   console.log('[INFO] GPS Daemon Stopped Successfully');
+  gpsdaemonisrunning = false;
   //process.exit(0);
 }
 
 const startGPSDevice = function() {
-  spawnChild('python', ['scripts/startgps.py'], null, onChildStdOut, onChildStdErr, function() {
+  spawnChild('python', ['scripts/startgps.py'], {}, onChildStdOut, onChildStdErr, function() {
     gpsdaemonisrunning = true;
     console.log('[INFO] GPS Device Started Successfully!');
     startGPSDaemon();
   });
 }
 const stopGPSDevice = function() {
-  spawnChild('python', ['scripts/stopgps.py'], null, onChildStdOut, onChildStdErr, function() {
+  spawnChild('python', ['scripts/stopgps.py'], {}, onChildStdOut, onChildStdErr, function() {
     gpsdaemonisrunning = true;
     console.log('[INFO] GPS Device Stopped Successfully!');
     stopGPSDaemon();
@@ -542,20 +551,15 @@ http.listen(3000, function() {
       stopGPSDaemon();
     });
     socket.on('rtlsdrenable', function(data) {
-      //stop wifi
       wirelessStop();
-      //start dump1090
       startDump1090();
       rtlsdrisrunning = true;
     });
     socket.on('rtlsdrdisable', function(data) {
-      //stop dump1090
       stopDump1090();
     });
     socket.on('wifienable', function(data) {
-      //stop dump1090
       stopDump1090();
-      //start wifi
       wirelessStart();
       rtlsdrisrunning = false;
     });
@@ -675,14 +679,12 @@ process.on('SIGINT', function() {
 
     killing_app = true;
     console.log("[INFO] Gracefully shutting down from SIGINT (Ctrl+C)");
+    console.log("[INFO] Disabling RTL-SDR Dongle");
+    stopDump1090();
     console.log("[INFO] Disabling Wifi Adapter...");
-
-   wirelessStop();
-   /*
     wireless.disable(function() {
         console.log("[INFO] Stopping Wifi and Exiting...");
-
         wireless.stop();
     });
-   */
+
 });

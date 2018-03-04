@@ -20,21 +20,23 @@ The collected data can be rendered later or observed in realtime through the HTM
 - GPS device connected to the Pi
 - Wifi device connected to the Pi
 - A valid Google Maps Api key (https://developers.google.com/maps/documentation/javascript/get-api-key)
-- [optional] gammu-smsd (https://wammu.eu/gammu/)
-- [optional] A GSM/GPRS device
-- [optional] A RTL-SDR dongle
+- A GSM/GPRS device (such as [this one](https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT)
+- A RTL-SDR dongle (see [this page](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/)
 
 **Installation:**
 ----
 
 **Prerequisites** NodeJS is installed and GPS + Wifi devices are plugged and properly detected.
 
-[optional]
-Install RTL-SDR software from https://github.com/MalcolmRobb/dump1090
+Install RTL-SDR software 
 
-[optional] (if using GSM/GPRS/GNSS hat instead of external GPS module)
-Install GSM/GPRS/GNSS software from WaveShare https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT
+    cd ~
+    git clone https://github.com/MalcolmRobb/dump1090
+    cd dump1090
+    make
 
+If using GSM/GPRS/GNSS hat instead of external GPS module, start by [installing GSM/GPRS/GNSS software from WaveShare](https://www.waveshare.com/wiki/GSM/GPRS/GNSS_HAT) first.
+Any other GPS will do as long as it is supported by gpsd and detected by the Pi.
 
 Install gpsd
 
@@ -63,6 +65,7 @@ You need *forever.js* installed globally to run this project headless
 
 Clone the repository and install
 
+    cd ~
     git clone https://github.com/tobozo/signal-logr.git
     cd signal-logr
     npm install

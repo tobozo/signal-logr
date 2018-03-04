@@ -36,8 +36,29 @@ var mapElement,
       rtlsdr:null,
       gpshat:null,
       gpsdaemon:null
-    }
+    },
+    listKMLType = ['Approch', 'Departure', 'Transit', 'Custom1', 'Custom2'],
+    listKMLs = localStorage['listKMLs'] || [],
+    Planes        = {},
+    PlanesOnMap   = 0,
+    PlanesOnTable = 0,
+    PlanesToReap  = 0,
+    SelectedPlane = null,
+    SpecialSquawk = false,
+    iSortCol=-1,
+    bSortASC=true,
+    bDefaultSortASC=true,
+    iDefaultSortCol=3,
+    Metric = false,
+    MarkerColor	  = "rgb(127, 127, 127)",
+    SelectedColor = "rgb(225, 225, 225)",
+    StaleColor = "rgb(190, 190, 190)",
+    SiteShow    = false,
+    SiteCircles = true, // true or false (Only shown if SiteShow is true)
+    // In nautical miles or km (depending settings value 'Metric')
+    SiteCirclesDistances = new Array(100,150,200)
 ;
+
 
 var socket = io();
 
@@ -133,7 +154,51 @@ var renderWifiCache = function(data) {
 }
 
 
+socket.on('rtlsdr', function(data) {
+  data = JSON.parse(data);
+  console.log(data);
+  PlanesOnMap = 0
+  SpecialSquawk = false;
+  
+  // Loop through all the planes in the data packet
+  for (var j=0; j < data.length; j++) {
+      // Do we already have this plane object in Planes?
+      // If not make it.
+      if (Planes[data[j].hex]) {
+          var plane = Planes[data[j].hex];
+      } else {
+          var plane = jQuery.extend(true, {}, planeObject);
+      }
+      
+      /* For special squawk tests
+      if (data[j].hex == '48413x') {
+          data[j].squawk = '7700';
+      } //*/
+      
+      // Set SpecialSquawk-value
+      if (data[j].squawk == '7500' || data[j].squawk == '7600' || data[j].squawk == '7700') {
+          SpecialSquawk = true;
+      }
+
+      // Call the function update
+      plane.funcUpdateData(data[j]);
+      
+      // Copy the plane into Planes
+      Planes[plane.icao] = plane;
+  }
+
+  PlanesOnTable = data.length;
+  
+  refreshTableInfo();
+  refreshSelected();
+  reaper();
+  
+});
+
+
 socket.on('reload', function() { location.reload(); });
+
+
 socket.on('device-status', function(data) {
   
   if(data.wirelessisrunning != deviceStatus.wifi) {
@@ -141,6 +206,8 @@ socket.on('device-status', function(data) {
     if(deviceStatus.wifi) {
       $('.device-wifi').removeClass('disabled')
       $('.wifi-item').show();
+      $('.rtlsdr-wrapper').hide();
+      marker.setVisible(true);
     } else {
       $('.device-wifi').addClass('disabled');
       $('.wifi-item').hide();
@@ -149,7 +216,7 @@ socket.on('device-status', function(data) {
   if(data.gpsdaemonisrunning != deviceStatus.gpsdaemon) {
     deviceStatus.gpsdaemon = data.gpsdaemonisrunning;
     if(deviceStatus.gpsdaemon)
-      $('.device-gpsdaemon').removeClass('disabled') 
+      $('.device-gpsdaemon').removeClass('disabled');
     else
       $('.device-gpsdaemon').addClass('disabled');
   }
@@ -158,9 +225,13 @@ socket.on('device-status', function(data) {
     if(deviceStatus.rtlsdr) {
       $('.device-rtlsdr').removeClass('disabled')
       $('.wifi-item').hide();
+      $('.rtlsdr-wrapper').show();
+      marker.setVisible(false);
     } else {
       $('.device-rtlsdr').addClass('disabled');
       $('.wifi-item').show();
+      $('.rtlsdr-wrapper').hide();
+      marker.setVisible(true);
     }
   }
   if(data.gpshatisrunning != deviceStatus.gpshat) {
@@ -290,7 +361,7 @@ var paddingGPS = 4;
 var dataset = [];
 
 //Create SVG element for satellites
-var svg = d3.select(".dataviz .satellites")
+var svgSatellite = d3.select(".dataviz .satellites")
         .append("svg")
         .attr("width", width)
         .attr("height", barHeight + 50)
@@ -334,8 +405,8 @@ function updateWifi(obj) {
 
 function updateSatellite(data) {
 
-    var rect = svg.selectAll("rect").data(data.satsVisible);
-    var text = svg.selectAll("text").data(data.satsVisible);
+    var rect = svgSatellite.selectAll("rect").data(data.satsVisible);
+    var text = svgSatellite.selectAll("text").data(data.satsVisible);
     rect.enter().append("rect");
     rect.enter().append("text");
     rect.attr("x", function(d, i) {
@@ -408,6 +479,9 @@ function updateMap(state) {
         $('#fix-progress').trigger('reset');
 
         latLng = new google.maps.LatLng(state.lat, state.lon);
+        
+        localStorage['CenterLat'] = state.lat;
+        localStorage['CenterLon'] = state.lon;
 
         marker.setPosition(latLng);
         circle.setCenter(latLng);
@@ -433,11 +507,111 @@ function initializeMap() {
 
     mapElement = document.getElementById('mapid');
 
+    /*
     mapOptions = {
         center: latLng,
         zoom: 14,
         mapTypeId: google.maps.MapTypeId.ROADMAP
     };
+    */
+    
+    
+    // Get current map settings
+    //CenterLat = Number(localStorage['CenterLat']) || latL;
+    //CenterLon = Number(localStorage['CenterLon']) || CONST_CENTERLON;
+    ZoomLvl   = Number(localStorage['ZoomLvl']) || 5;
+	// Make a list of all the available map IDs
+	var mapTypeIds = [];
+	for(var type in google.maps.MapTypeId) {
+		mapTypeIds.push(google.maps.MapTypeId[type]);
+	}
+	// Push OSM on to the end
+	mapTypeIds.push("OSM");
+	mapTypeIds.push("dark_map");
+
+	// Styled Map to outline airports and highways
+	var styles = [
+		{
+			"featureType": "administrative",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "landscape",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "poi",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "road",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "transit",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "landscape",
+			"stylers": [
+				{ "visibility": "on" },
+				{ "weight": 8 },
+				{ "color": "#000000" }
+			]
+		},{
+			"featureType": "water",
+			"stylers": [
+			{ "lightness": -74 }
+			]
+		},{
+			"featureType": "transit.station.airport",
+			"stylers": [
+				{ "visibility": "on" },
+				{ "weight": 8 },
+				{ "invert_lightness": true },
+				{ "lightness": 27 }
+			]
+		},{
+			"featureType": "road.highway",
+			"stylers": [
+				{ "visibility": "simplified" },
+				{ "invert_lightness": true },
+				{ "gamma": 0.3 }
+			]
+		},{
+			"featureType": "road",
+			"elementType": "labels",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		}
+	]
+
+	// Add our styled map
+	var styledMap = new google.maps.StyledMapType(styles, {name: "Dark Map"});
+
+	// Define the Google Map
+	var mapOptions = {
+		center: latLng, // new google.maps.LatLng(CenterLat, CenterLon),
+		zoom: ZoomLvl,
+		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		mapTypeControl: true,
+		streetViewControl: false,
+		mapTypeControlOptions: {
+			mapTypeIds: mapTypeIds,
+			position: google.maps.ControlPosition.TOP_LEFT,
+			style: google.maps.MapTypeControlStyle.DROPDOWN_MENU
+		}
+	};
+    
+    
+    
+    
     map = new google.maps.Map(mapElement, mapOptions)
     bounds = new google.maps.LatLngBounds();
     marker = new google.maps.Marker({position: latLng, map: map});
@@ -452,6 +626,30 @@ function initializeMap() {
         radius: 100
     });
 
+    
+	//Define OSM map type pointing at the OpenStreetMap tile server
+	map.mapTypes.set("OSM", new google.maps.ImageMapType({
+		getTileUrl: function(coord, zoom) {
+			return "http://tile.openstreetmap.org/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
+		},
+		tileSize: new google.maps.Size(256, 256),
+		name: "OpenStreetMap",
+		maxZoom: 18
+	}));
+
+	map.mapTypes.set("dark_map", styledMap);
+    
+	// Listeners for newly created Map
+    google.maps.event.addListener(map, 'center_changed', function() {
+        localStorage['CenterLat'] = map.getCenter().lat();
+        localStorage['CenterLon'] = map.getCenter().lng();
+    });
+    
+    google.maps.event.addListener(map, 'zoom_changed', function() {
+        localStorage['ZoomLvl']  = map.getZoom();
+    }); 
+    
+    
     $('#focus-lastfix').on('click', function() {
         latLng = new google.maps.LatLng( document.getElementById('lat').innerHTML, document.getElementById('lon').innerHTML );
         map.setCenter(latLng);
@@ -466,7 +664,6 @@ function initializeMap() {
             top.location = top.location
         }, 10000);
     });
-    
     
     $('.device-gpsdaemon').on('click', function() {
       if(deviceStatus.gpsdaemon===true) {
@@ -647,3 +844,662 @@ $(function() {
 });
 
 
+
+// This looks for planes to reap out of the master Planes variable
+function reaper() {
+	PlanesToReap = 0;
+	// When did the reaper start?
+	reaptime = new Date().getTime();
+	// Loop the planes
+	for (var reap in Planes) {
+		// Is this plane possibly reapable?
+		if (Planes[reap].reapable == true) {
+			// Has it not been seen for 5 minutes?
+			// This way we still have it if it returns before then
+			// Due to loss of signal or other reasons
+			if ((reaptime - Planes[reap].updated) > 300000) {
+				// Reap it.
+				delete Planes[reap];
+			}
+			PlanesToReap++;
+		}
+	};
+} 
+
+// Refresh the detail window about the plane
+function refreshSelected() {
+    var selected = false;
+	if (typeof SelectedPlane !== 'undefined' && SelectedPlane != "ICAO" && SelectedPlane != null) {
+    	selected = Planes[SelectedPlane];
+    }
+	
+	var columns = 2;
+	var html = '';
+	
+	if (selected) {
+    	html += '<table id="selectedinfo" width="100%">';
+    } else {
+        html += '<table id="selectedinfo" class="dim" width="100%">';
+    }
+	
+	// Flight header line including squawk if needed
+	if (selected && selected.flight == "") {
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>N/A (' +
+	        selected.icao + ')</b>';
+	} else if (selected && selected.flight != "") {
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>' +
+	        selected.flight + '</b>';
+	} else {
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>DUMP1090</b>';
+	}
+	
+	if (selected && selected.squawk == 7500) { // Lets hope we never see this... Aircraft Hijacking
+		html += '&nbsp;<span class="squawk7500">&nbsp;Squawking: Aircraft Hijacking&nbsp;</span>';
+	} else if (selected && selected.squawk == 7600) { // Radio Failure
+		html += '&nbsp;<span class="squawk7600">&nbsp;Squawking: Radio Failure&nbsp;</span>';
+	} else if (selected && selected.squawk == 7700) { // General Emergency
+		html += '&nbsp;<span class="squawk7700">&nbsp;Squawking: General Emergency&nbsp;</span>';
+	} else if (selected && selected.flight != '') {
+		html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
+	    html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
+	    html += '&nbsp;<a href="http://flightaware.com/live/flight/'+selected.flight+'" target="_blank">[FlightAware]</a>';
+	}
+	html += '<td></tr>';
+	
+	if (selected) {
+	    if (Metric) {
+        	html += '<tr><td>Altitude: ' + Math.round(selected.altitude / 3.2828) + ' m</td>';
+        } else {
+            html += '<tr><td>Altitude: ' + selected.altitude + ' ft</td>';
+        }
+    } else {
+        html += '<tr><td>Altitude: n/a</td>';
+    }
+		
+	if (selected && selected.squawk != '0000') {
+		html += '<td>Squawk: ' + selected.squawk + '</td></tr>';
+	} else {
+	    html += '<td>Squawk: n/a</td></tr>';
+	}
+	
+	html += '<tr><td>Speed: ' 
+	if (selected) {
+	    if (Metric) {
+	        html += Math.round(selected.speed * 1.852) + ' km/h';
+	    } else {
+	        html += selected.speed + ' kt';
+	    }
+	} else {
+	    html += 'n/a';
+	}
+	html += '</td>';
+	
+	if (selected) {
+        html += '<td>ICAO (hex): ' + selected.icao + '</td></tr>';
+    } else {
+        html += '<td>ICAO (hex): n/a</td></tr>'; // Something is wrong if we are here
+    }
+    
+    html += '<tr><td>Track: ' 
+	if (selected && selected.vTrack) {
+	    html += selected.track + '&deg;' + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')';
+	} else {
+	    html += 'n/a';
+	}
+	html += '</td><td>&nbsp;</td></tr>';
+
+	html += '<tr><td colspan="' + columns + '" align="center">Lat/Long: ';
+	if (selected && selected.vPosition) {
+	    html += selected.latitude + ', ' + selected.longitude + '</td></tr>';
+	    
+	    // Let's show some extra data if we have site coordinates
+	    if (SiteShow) {
+            //var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+            var planeLatLon = new google.maps.LatLng(selected.latitude, selected.longitude);
+            var dist = google.maps.geometry.spherical.computeDistanceBetween (latLng, planeLatLon);
+            
+            if (Metric) {
+                dist /= 1000;
+            } else {
+                dist /= 1852;
+            }
+            dist = (Math.round((dist)*10)/10).toFixed(1);
+            html += '<tr><td colspan="' + columns + '" align="center">Distance from Site: ' + dist +
+                (Metric ? ' km' : ' NM') + '</td></tr>';
+        } // End of SiteShow
+	} else {
+	    if (SiteShow) {
+	        html += '<tr><td colspan="' + columns + '" align="center">Distance from Site: n/a ' + 
+	            (Metric ? ' km' : ' NM') + '</td></tr>';
+	    } else {
+    	    html += 'n/a</td></tr>';
+    	}
+	}
+
+	html += '</table>';
+	
+	document.getElementById('plane_detail').innerHTML = html;
+}
+
+// Right now we have no means to validate the speed is good
+// Want to return (n/a) when we dont have it
+// TODO: Edit C code to add a valid speed flag
+// TODO: Edit js code to use said flag
+function normalizeSpeed(speed, valid) {
+	return speed	
+}
+
+// Returns back a long string, short string, and the track if we have a vaild track path
+function normalizeTrack(track, valid){
+	x = []
+	if ((track > -1) && (track < 22.5)) {
+		x = ["North", "N", track]
+	}
+	if ((track > 22.5) && (track < 67.5)) {
+		x = ["North East", "NE", track]
+	}
+	if ((track > 67.5) && (track < 112.5)) {
+		x = ["East", "E", track]
+	}
+	if ((track > 112.5) && (track < 157.5)) {
+		x = ["South East", "SE", track]
+	}
+	if ((track > 157.5) && (track < 202.5)) {
+		x = ["South", "S", track]
+	}
+	if ((track > 202.5) && (track < 247.5)) {
+		x = ["South West", "SW", track]
+	}
+	if ((track > 247.5) && (track < 292.5)) {
+		x = ["West", "W", track]
+	}
+	if ((track > 292.5) && (track < 337.5)) {
+		x = ["North West", "NW", track]
+	}
+	if ((track > 337.5) && (track < 361)) {
+		x = ["North", "N", track]
+	}
+	if (!valid) {
+		x = [" ", "n/a", ""]
+	}
+	return x
+}
+
+// Refeshes the larger table of all the planes
+function refreshTableInfo() {
+	var html = '<table id="tableinfo" width="100%">';
+	html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
+	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
+	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
+	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" ' +
+	    'align="right">Squawk</td>';
+	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" ' +
+	    'align="right">Altitude</td>';
+	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" ' +
+	    'align="right">Speed</td>';
+        // Add distance column header to table if site coordinates are provided
+        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+            html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
+                'align="right">Distance</td>';
+        }
+	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'6\');" ' +
+	    'align="right">Track</td>';
+	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'7\');" ' +
+	    'align="right">Msgs</td>';
+	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'8\');" ' +
+	    'align="right">Seen</td></thead><tbody>';
+	for (var tablep in Planes) {
+		var tableplane = Planes[tablep]
+		if (!tableplane.reapable) {
+			var specialStyle = "";
+			// Is this the plane we selected?
+			if (tableplane.icao == SelectedPlane) {
+				specialStyle += " selected";
+			}
+			// Lets hope we never see this... Aircraft Hijacking
+			if (tableplane.squawk == 7500) {
+				specialStyle += " squawk7500";
+			}
+			// Radio Failure
+			if (tableplane.squawk == 7600) {
+				specialStyle += " squawk7600";
+			}
+			// Emergancy
+			if (tableplane.squawk == 7700) {
+				specialStyle += " squawk7700";
+			}
+			
+			if (tableplane.vPosition == true) {
+				html += '<tr class="plane_table_row vPosition' + specialStyle + '">';
+			} else {
+				html += '<tr class="plane_table_row ' + specialStyle + '">';
+		    }
+		    
+			html += '<td>' + tableplane.icao + '</td>';
+			html += '<td>' + tableplane.flight + '</td>';
+			if (tableplane.squawk != '0000' ) {
+    			html += '<td align="right">' + tableplane.squawk + '</td>';
+    	    } else {
+    	        html += '<td align="right">&nbsp;</td>';
+    	    }
+    	    
+    	    if (Metric) {
+    			html += '<td align="right">' + Math.round(tableplane.altitude / 3.2828) + '</td>';
+    			html += '<td align="right">' + Math.round(tableplane.speed * 1.852) + '</td>';
+    	    } else {
+    	        html += '<td align="right">' + tableplane.altitude + '</td>';
+    	        html += '<td align="right">' + tableplane.speed + '</td>';
+    	    }
+                        // Add distance column to table if site coordinates are provided
+                        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+                        html += '<td align="right">';
+                            if (tableplane.vPosition) {
+                                //var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+                                var planeLatLon = new google.maps.LatLng(tableplane.latitude, tableplane.longitude);
+                                var dist = google.maps.geometry.spherical.computeDistanceBetween (latLng, planeLatLon);
+                                    if (Metric) {
+                                        dist /= 1000;
+                                    } else {
+                                        dist /= 1852;
+                                    }
+                                dist = (Math.round((dist)*10)/10).toFixed(1);
+                                html += dist;
+                            } else {
+                            html += '0';
+                            }
+                            html += '</td>';
+                        }
+			
+			html += '<td align="right">';
+			if (tableplane.vTrack) {
+    			 html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
+    			 // html += ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')';
+    	    } else {
+    	        html += '&nbsp;';
+    	    }
+    	    html += '</td>';
+			html += '<td align="right">' + tableplane.messages + '</td>';
+			html += '<td align="right">' + tableplane.seen + '</td>';
+			html += '</tr>';
+		}
+	}
+	html += '</tbody></table>';
+
+	document.getElementById('planes_table').innerHTML = html;
+
+	if (SpecialSquawk) {
+    	$('#SpecialSquawkWarning').css('display', 'inline');
+    } else {
+        $('#SpecialSquawkWarning').css('display', 'none');
+    }
+
+	// Click event for table
+	$('#planes_table').find('tr').click( function(){
+		var hex = $(this).find('td:first').text();
+		if (hex != "ICAO") {
+			selectPlaneByHex(hex);
+			refreshTableInfo();
+			refreshSelected();
+		}
+	});
+
+	sortTable("tableinfo");
+}
+
+// Credit goes to a co-worker that needed a similar functions for something else
+// we get a copy of it free ;)
+function setASC_DESC(iCol) {
+	if(iSortCol==iCol) {
+		bSortASC=!bSortASC;
+	} else {
+		bSortASC=bDefaultSortASC;
+	}
+}
+
+function sortTable(szTableID,iCol) { 
+	//if iCol was not provided, and iSortCol is not set, assign default value
+	if (typeof iCol==='undefined'){
+		if(iSortCol!=-1){
+			var iCol=iSortCol;
+                } else if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+                        var iCol=5;
+		} else {
+			var iCol=iDefaultSortCol;
+		}
+	}
+
+	//retrieve passed table element
+	var oTbl=document.getElementById(szTableID).tBodies[0];
+	var aStore=[];
+
+	//If supplied col # is greater than the actual number of cols, set sel col = to last col
+	if (typeof oTbl.rows[0] !== 'undefined' && oTbl.rows[0].cells.length <= iCol) {
+		iCol=(oTbl.rows[0].cells.length-1);
+    }
+
+	//store the col #
+	iSortCol=iCol;
+
+	//determine if we are delaing with numerical, or alphanumeric content
+	var bNumeric = false;
+	if ((typeof oTbl.rows[0] !== 'undefined') &&
+	    (!isNaN(parseFloat(oTbl.rows[0].cells[iSortCol].textContent ||
+	    oTbl.rows[0].cells[iSortCol].innerText)))) {
+	    bNumeric = true;
+	}
+
+	//loop through the rows, storing each one inro aStore
+	for (var i=0,iLen=oTbl.rows.length;i<iLen;i++){
+		var oRow=oTbl.rows[i];
+		vColData=bNumeric?parseFloat(oRow.cells[iSortCol].textContent||oRow.cells[iSortCol].innerText):String(oRow.cells[iSortCol].textContent||oRow.cells[iSortCol].innerText);
+		aStore.push([vColData,oRow]);
+	}
+
+	//sort aStore ASC/DESC based on value of bSortASC
+	if (bNumeric) { //numerical sort
+		aStore.sort(function(x,y){return bSortASC?x[0]-y[0]:y[0]-x[0];});
+	} else { //alpha sort
+		aStore.sort();
+		if(!bSortASC) {
+			aStore.reverse();
+	    }
+	}
+
+	//rewrite the table rows to the passed table element
+	for(var i=0,iLen=aStore.length;i<iLen;i++){
+		oTbl.appendChild(aStore[i][1]);
+	}
+	aStore=null;
+}
+
+function selectPlaneByHex(hex) {
+	// If SelectedPlane has something in it, clear out the selected
+	if (SelectedPlane != null) {
+		Planes[SelectedPlane].is_selected = false;
+		Planes[SelectedPlane].funcClearLine();
+		Planes[SelectedPlane].markerColor = MarkerColor;
+		// If the selected has a marker, make it not stand out
+		if (Planes[SelectedPlane].marker) {
+			Planes[SelectedPlane].marker.setIcon(Planes[SelectedPlane].funcGetIcon());
+		}
+	}
+
+	// If we are clicking the same plane, we are deselected it.
+	if (String(SelectedPlane) != String(hex)) {
+		// Assign the new selected
+		SelectedPlane = hex;
+		Planes[SelectedPlane].is_selected = true;
+		// If the selected has a marker, make it stand out
+		if (Planes[SelectedPlane].marker) {
+			Planes[SelectedPlane].funcUpdateLines();
+			Planes[SelectedPlane].marker.setIcon(Planes[SelectedPlane].funcGetIcon());
+		}
+	} else { 
+		SelectedPlane = null;
+	}
+    refreshSelected();
+    refreshTableInfo();
+}
+
+
+var planeObject = {
+	oldlat		: null,
+	oldlon		: null,
+	oldalt		: null,
+
+	// Basic location information
+	altitude	: null,
+	speed		: null,
+	track		: null,
+	latitude	: null,
+	longitude	: null,
+	
+	// Info about the plane
+	flight		: null,
+	squawk		: null,
+	icao		: null,
+	is_selected	: false,	
+
+	// Data packet numbers
+	messages	: null,
+	seen		: null,
+
+	// Vaild...
+	vPosition	: false,
+	vTrack		: false,
+
+	// GMap Details
+	marker		: null,
+	markerColor	: MarkerColor,
+	lines		: [],
+	trackdata	: new Array(),
+	trackline	: new Array(),
+
+	// When was this last updated?
+	updated		: null,
+	reapable	: false,
+
+	// Appends data to the running track so we can get a visual tail on the plane
+	// Only useful for a long running browser session.
+	funcAddToTrack	: function(){
+			// TODO: Write this function out
+			this.trackdata.push([this.latitude, this.longitude, this.altitude, this.track, this.speed]);
+			this.trackline.push(new google.maps.LatLng(this.latitude, this.longitude));
+		},
+
+	// This is to remove the line from the screen if we deselect the plane
+	funcClearLine	: function() {
+			if (this.line) {
+				this.line.setMap(null);
+				this.line = null;
+			}
+		},
+
+	// Should create an icon for us to use on the map...
+	funcGetIcon	: function() {
+			this.markerColor = MarkerColor;
+			// If this marker is selected we should make it lighter than the rest.
+			if (this.is_selected == true) {
+				this.markerColor = SelectedColor;
+			}
+
+			// If we have not seen a recent update, change color
+			if (this.seen > 15) {
+				this.markerColor = StaleColor;
+			}
+			
+			// Plane marker
+            var baseSvg = {
+                planeData : "M 1.9565564,41.694305 C 1.7174505,40.497708 1.6419973,38.448747 " +
+                    "1.8096508,37.70494 1.8936398,37.332056 2.0796653,36.88191 2.222907,36.70461 " +
+                    "2.4497603,36.423844 4.087816,35.47248 14.917931,29.331528 l 12.434577," +
+                    "-7.050718 -0.04295,-7.613412 c -0.03657,-6.4844888 -0.01164,-7.7625804 " +
+                    "0.168134,-8.6194061 0.276129,-1.3160905 0.762276,-2.5869575 1.347875," +
+                    "-3.5235502 l 0.472298,-0.7553719 1.083746,-0.6085497 c 1.194146,-0.67053522 " +
+                    "1.399524,-0.71738842 2.146113,-0.48960552 1.077005,0.3285939 2.06344," +
+                    "1.41299352 2.797602,3.07543322 0.462378,1.0469993 0.978731,2.7738408 " +
+                    "1.047635,3.5036272 0.02421,0.2570284 0.06357,3.78334 0.08732,7.836246 0.02375," +
+                    "4.052905 0.0658,7.409251 0.09345,7.458546 0.02764,0.04929 5.600384,3.561772 " +
+                    "12.38386,7.805502 l 12.333598,7.715871 0.537584,0.959688 c 0.626485,1.118378 " +
+                    "0.651686,1.311286 0.459287,3.516442 -0.175469,2.011604 -0.608966,2.863924 " +
+                    "-1.590344,3.127136 -0.748529,0.200763 -1.293144,0.03637 -10.184829,-3.07436 " +
+                    "C 48.007733,41.72562 44.793806,40.60197 43.35084,40.098045 l -2.623567," +
+                    "-0.916227 -1.981212,-0.06614 c -1.089663,-0.03638 -1.985079,-0.05089 -1.989804," +
+                    "-0.03225 -0.0052,0.01863 -0.02396,2.421278 -0.04267,5.339183 -0.0395,6.147742 " +
+                    "-0.143635,7.215456 -0.862956,8.845475 l -0.300457,0.680872 2.91906,1.361455 " +
+                    "c 2.929379,1.366269 3.714195,1.835385 4.04589,2.41841 0.368292,0.647353 " +
+                    "0.594634,2.901439 0.395779,3.941627 -0.0705,0.368571 -0.106308,0.404853 " +
+                    "-0.765159,0.773916 L 41.4545,62.83158 39.259237,62.80426 c -6.030106,-0.07507 " +
+                    "-16.19508,-0.495041 -16.870991,-0.697033 -0.359409,-0.107405 -0.523792," +
+                    "-0.227482 -0.741884,-0.541926 -0.250591,-0.361297 -0.28386,-0.522402 -0.315075," +
+                    "-1.52589 -0.06327,-2.03378 0.23288,-3.033615 1.077963,-3.639283 0.307525," +
+                    "-0.2204 4.818478,-2.133627 6.017853,-2.552345 0.247872,-0.08654 0.247455," +
+                    "-0.102501 -0.01855,-0.711959 -0.330395,-0.756986 -0.708622,-2.221756 -0.832676," +
+                    "-3.224748 -0.05031,-0.406952 -0.133825,-3.078805 -0.185533,-5.937448 -0.0517," +
+                    "-2.858644 -0.145909,-5.208974 -0.209316,-5.222958 -0.06341,-0.01399 -0.974464," +
+                    "-0.0493 -2.024551,-0.07845 L 23.247235,38.61921 18.831373,39.8906 C 4.9432155," +
+                    "43.88916 4.2929558,44.057819 3.4954426,43.86823 2.7487826,43.690732 2.2007966," +
+                    "42.916622 1.9565564,41.694305 z"
+            };
+
+			// If the squawk code is one of the international emergency codes,
+			// match the info window alert color.
+			if (this.squawk == 7500) {
+				this.markerColor = "rgb(255, 85, 85)";
+			}
+			if (this.squawk == 7600) {
+				this.markerColor = "rgb(0, 255, 255)";
+			}
+			if (this.squawk == 7700) {
+				this.markerColor = "rgb(255, 255, 0)";
+			}
+
+			// If we have not overwritten color by now, an extension still could but
+			// just keep on trucking.  :)
+
+			return {
+                strokeWeight: (this.is_selected ? 2 : 1),
+                path:  "M 0,0 "+ baseSvg["planeData"],
+                scale: 0.4,
+                fillColor: this.markerColor,
+                fillOpacity: 0.9,
+                anchor: new google.maps.Point(32, 32), // Set anchor to middle of plane.
+                rotation: this.track
+            };
+		},
+
+	// TODO: Trigger actions of a selecting a plane
+	funcSelectPlane	: function(selectedPlane){
+			selectPlaneByHex(this.icao);
+		},
+
+	// Update our data
+	funcUpdateData	: function(data){
+			// So we can find out if we moved
+			var oldlat 	= this.latitude;
+			var oldlon	= this.longitude;
+			var oldalt	= this.altitude;
+
+			// Update all of our data
+			this.updated	= new Date().getTime();
+			this.altitude	= data.altitude;
+			this.speed	= data.speed;
+			this.track	= data.track;
+			this.latitude	= data.lat;
+			this.longitude	= data.lon;
+			this.flight	= data.flight;
+			this.squawk	= data.squawk;
+			this.icao	= data.hex;
+			this.messages	= data.messages;
+			this.seen	= data.seen;
+
+			// If no packet in over 58 seconds, consider the plane reapable
+			// This way we can hold it, but not show it just in case the plane comes back
+			if (this.seen > 58) {
+				this.reapable = true;
+				if (this.marker) {
+					this.marker.setMap(null);
+					this.marker = null;
+				}
+				if (this.line) {
+					this.line.setMap(null);
+					this.line = null;
+				}
+				if (SelectedPlane == this.icao) {
+					if (this.is_selected) {
+						this.is_selected = false;
+					}
+					SelectedPlane = null;
+				}
+			} else {
+				if (this.reapable == true) {
+				}
+				this.reapable = false;
+			}
+
+			// Is the position valid?
+			if ((data.validposition == 1) && (this.reapable == false)) {
+				this.vPosition = true;
+
+				// Detech if the plane has moved
+				changeLat = false;
+				changeLon = false;
+				changeAlt = false;
+				if (oldlat != this.latitude) {
+					changeLat = true;
+				}
+				if (oldlon != this.longitude) {
+					changeLon = true;
+				}
+				if (oldalt != this.altitude) {
+					changeAlt = true;
+				}
+				// Right now we only care about lat/long, if alt is updated only, oh well
+				if ((changeLat == true) || (changeLon == true)) {
+					this.funcAddToTrack();
+					if (this.is_selected) {
+						this.line = this.funcUpdateLines();
+					}
+				}
+				this.marker = this.funcUpdateMarker();
+				PlanesOnMap++;
+			} else {
+				this.vPosition = false;
+			}
+
+			// Do we have a valid track for the plane?
+			if (data.validtrack == 1)
+				this.vTrack = true;
+			else
+				this.vTrack = false;
+		},
+
+	// Update our marker on the map
+	funcUpdateMarker: function() {
+			if (this.marker) {
+				this.marker.setPosition(new google.maps.LatLng(this.latitude, this.longitude));
+				this.marker.setIcon(this.funcGetIcon());
+			} else {
+				this.marker = new google.maps.Marker({
+					position: new google.maps.LatLng(this.latitude, this.longitude),
+					map: map,
+					icon: this.funcGetIcon(),
+					visable: true
+				});
+
+				// This is so we can match icao address
+				this.marker.icao = this.icao;
+
+				// Trap clicks for this marker.
+				google.maps.event.addListener(this.marker, 'click', this.funcSelectPlane);
+			}
+
+			// Setting the marker title
+			if (this.flight.length == 0) {
+				this.marker.setTitle(this.hex);
+			} else {
+				this.marker.setTitle(this.flight+' ('+this.icao+')');
+			}
+			return this.marker;
+		},
+
+	// Update our planes tail line,
+	// TODO: Make this multi colored based on options
+	//		altitude (default) or speed
+	funcUpdateLines: function() {
+			if (this.line) {
+				var path = this.line.getPath();
+				path.push(new google.maps.LatLng(this.latitude, this.longitude));
+			} else {
+				this.line = new google.maps.Polyline({
+					strokeColor: '#000000',
+					strokeOpacity: 1.0,
+					strokeWeight: 3,
+					map: map,
+					path: this.trackline
+				});
+			}
+			return this.line;
+		}
+};

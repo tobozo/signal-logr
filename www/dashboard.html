@@ -19,6 +19,7 @@ td {
 .map-holder {
   width:100%;
   height:500px;
+  display: flex;
 }
 #mapid {
   height: 100%;
@@ -39,13 +40,17 @@ svg {
   display: block;
 }
 header {
-  min-height: 12rem;
+  /*min-height: 12rem;*/
 }
 /* css for timepicker */
 .ui-timepicker-div dl{ text-align: left; }
 .ui-timepicker-div dl dt{ height: 25px; }
 .ui-timepicker-div dl dd{ margin: -25px 0 10px 65px; }
 .hasDatepicker { width: 5rem; }
+
+.panel, .panel button, .panel input {
+  font-size: calc(100vw / 75);
+}
 
 .gps-info {
   float:right;
@@ -58,6 +63,7 @@ header {
   height: 8rem; 
   position: relative; 
   margin-left: 290px;
+  margin-bottom: 1rem;
   width:270px;
 }
 
@@ -182,7 +188,7 @@ header {
 
 
 .device-status {
-  position: absolute;
+  position: fixed;
   bottom: 1em;
   right: 1em;
 }
@@ -203,9 +209,35 @@ header {
 .device-wifi { background-image:url('/wifi.png'); }
 .device-gpsdaemon { background-image:url('/gps.png'); }
 .device-gpshat { background-image:url('/gpio.png'); }
-.device-rtlsdr { background-imagE:url('/rtlsdr.jpeg'); }
+.device-rtlsdr { background-image:url('/rtlsdr.jpeg'); }
+#focus-lastfix { background-image:url('/focus.png'); }
+#reload-ws { background-image:url('/restart.png'); }
 
 
+.rtlsdr-wrapper {
+  font-size: 10px;
+  width: 300px;
+}
+
+fieldset { border:0; }
+.gps-heatmap-options { display: none; }
+legend.active + .gps-heatmap-options { display: block; }
+legend::after {
+  content:"[+]";
+}
+legend.active::after {
+  content:"[-]";
+}
+
+/*
+.map-holder.rtlsdr {
+  width: auto;
+  flex: 1;
+}
+.map-holder.rtlsdr .rtlsdr-wrapper {
+  display: block;
+  flex: 1;
+}*/
 
 </style>
 <link rel="stylesheet" href="http://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
@@ -266,14 +298,16 @@ header {
   </div>
 
   <div class="device-status">
-    <div class="device-wifi" title="WiFi"></div>
+    <div id="reload-ws" title="Restart Server"></div>
+    <div id="focus-lastfix" title="Focus Last Fix"></div>
+  
+    <div class="device-wifi" title="WiFi (will DISABLE RTL-SDR)"></div>
     <div class="device-gpsdaemon" title="GPS Daemon"></div>
     <div class="device-gpshat" title="GPIO Hat"></div>
-    <div class="device-rtlsdr" title="RTL-SRD Dongle"></div>
+    <div class="device-rtlsdr" title="RTL-SRD Dongle (will DISABLE WiFi)"></div>
   </div>
 
-
-
+  
   <div class="wifi-wrapper wifi-item">
     <div class="title">
       Wifi 
@@ -299,26 +333,34 @@ header {
   <div style="clear:both"></div>
 </header>
 <div style="clear:both"></div>
-<div class="panel">
-  Min Radius: <input type="number" id="radius" value="15" min="10" max="1500" style="width:3rem" />
-  After: <input type="datetime" id="date-filter-after" value="" placeholder="yyyy-mm-ddThh:mm:ss">
-  Before <input type="datetime" id="date-filter-before" value="" placeholder="yyyy-mm-ddThh:mm:ss">
-     <button id="pollsize" onclick="togglePollFiles()" data-pollsize="0" data-label="Start Retrieving data"></button>
-  <button style="display:none" id="initheatmap-button" class="button-control-heatmap" disabled onclick="initHeatmap()">Init heatmap</button>
-  <button onclick="location.reload()">Reset</button>
-  <br>
-  Layers: <button class="button-control-heatmap" disabled onclick="toggleHeatmap()">Toggle Heatmap</button>
-  <button class="button-control-heatmap" disabled onclick="changeGradient()">Change gradient</button>
-  <button class="button-control-heatmap" disabled onclick="changeRadius()">Change radius</button>
-  <button class="button-control-heatmap" disabled onclick="changeHeatmapOpacity()">Change Heatmap Opacity</button>
-  <button class="button-control-circle" onclick="changecircleOpacity()">Toggle Circle</button>
-  <br>
-  Session: 
-  <button id="focus-lastfix">Focus map on last fix</button>
-  <button id="reload-ws">Reload Web Server</button>
-</div>
+<fieldset class="panel">
+  <legend onclick="this.classList.toggle('active')" align="right">GPS Heat Map Options</legend>
+  <div class="gps-heatmap-options">
+    Min Radius: <input type="number" id="radius" value="15" min="10" max="1500" style="width:3rem" />
+    After: <input type="datetime" id="date-filter-after" value="" placeholder="yyyy-mm-ddThh:mm:ss">
+    Before <input type="datetime" id="date-filter-before" value="" placeholder="yyyy-mm-ddThh:mm:ss">
+      <button id="pollsize" onclick="togglePollFiles()" data-pollsize="0" data-label="Start Retrieving data"></button>
+    <button style="display:none" id="initheatmap-button" class="button-control-heatmap" disabled onclick="initHeatmap()">Init heatmap</button>
+    <button onclick="location.reload()">Reset</button>
+    <br>
+    Layers: <button class="button-control-heatmap" disabled onclick="toggleHeatmap()">Toggle Heatmap</button>
+    <button class="button-control-heatmap" disabled onclick="changeGradient()">Change gradient</button>
+    <button class="button-control-heatmap" disabled onclick="changeRadius()">Change radius</button>
+    <button class="button-control-heatmap" disabled onclick="changeHeatmapOpacity()">Change Heatmap Opacity</button>
+    <button class="button-control-circle" onclick="changecircleOpacity()">Toggle Circle</button>
+  </div>
+</fieldset>
+
 <div class="map-holder">
   <div id="mapid"></div>
+  <div class="rtlsdr-wrapper">
+    <div class="rtlsdr-container">
+        <div id="plane_detail"></div>
+        <div id="options"></div>
+        <div id="planes_table"></div>
+        <div id="plane_extension"></div>
+    </div>
+  </div>
 </div>
 
 

@@ -56,17 +56,18 @@ print "AT+CGNSPWR=1\r" # Turn on the power of GPS
 ser.write("AT+CGNSPWR=1\r")
 wait_Answer("OK")
 
-print "AT+CGNSSEQ=\"RMC\"\r" # RMC mode, Recommended Minimum Specific GNSS Data
-ser.write("AT+CGNSSEQ=\"RMC\"\r")
-wait_Answer("OK")
+#print "AT+CGNSSEQ=\"RMC\"\r" # RMC mode, Recommended Minimum Specific GNSS Data
+#ser.write("AT+CGNSSEQ=\"RMC\"\r")
+#wait_Answer("OK")
 
-print "AT+CGNSINF" # GNSS  navigation information parsed from NMEA sentences.
-ser.write("AT+CGNSINF\r")
-wait_Answer("OK")
+#print "AT+CGNSINF" # GNSS  navigation information parsed from NMEA sentences.
+#ser.write("AT+CGNSINF\r")
+#wait_Answer("OK")
 
-print "AT+CGNSURC=2" # set URC reporting every 2 seconds
-ser.write("AT+CGNSURC=2\r")
-wait_Answer("OK")
+#print "AT+CGNSURC=2" # set URC reporting every 2 seconds
+#ser.write("AT+CGNSURC=2\r")
+ser.write("AT+CGNSURC=0\r")
+#wait_Answer("OK")
 
 print "AT+CGNSTST=1\r" # Send data received to UART
 ser.write("AT+CGNSTST=1\r")
